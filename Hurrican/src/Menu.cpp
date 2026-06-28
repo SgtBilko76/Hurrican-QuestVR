@@ -14,6 +14,7 @@
 // --------------------------------------------------------------------------------------
 
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <array>
 #include <string>
@@ -219,7 +220,7 @@ MenuClass::MenuClass() {
     BlinkCounter = 0.75f;
 
     // Sprache feststellen und schauen, welche Grafik wir anzeigen müssen
-    if (strcmp(TextArray[TEXT::BENUTZTE_GRAFIK], "0") == 0)
+    if (std::strcmp(TextArray[TEXT::BENUTZTE_GRAFIK], "0") == 0)
         Sprachgrafik = 0;  // deutsch ?
     else
         Sprachgrafik = 1;  // oder doch englisch ?
@@ -233,14 +234,14 @@ MenuClass::MenuClass() {
 
     // creditscount rausfinden
     CreditsCount = 0;
-    while (strcmp(Credits[CreditsCount], "#eoc") != 0)
+    while (std::strcmp(Credits[CreditsCount], "#eoc") != 0)
         CreditsCount++;
 
     // DKS - Made a version of the above credits text array meant for use on
     //      low resolution displays that use text scaling. Long lines are split,
     //      and there's less repeated blank lines.
     LowResCreditsCount = 0;
-    while (strcmp(LowResCredits[LowResCreditsCount], "#eoc") != 0)
+    while (std::strcmp(LowResCredits[LowResCreditsCount], "#eoc") != 0)
         LowResCreditsCount++;
 
     // DKS - Initialize NewName with just the cursor char
@@ -446,7 +447,7 @@ void MenuClass::ShowMenu() {
             for (int i = 0; i < num_lang; i++) {
                 strcpy_s(lang_name, LanguageFiles[i].c_str());
                 // Truncate the extension
-                int trunc_loc = strlen(lang_name) - 4;
+                int trunc_loc = std::strlen(lang_name) - 4;
                 lang_name[trunc_loc] = '\0';
 
                 // Make first character upper-case
@@ -881,7 +882,7 @@ void MenuClass::ShowMenu() {
                     // Credits zuende ?
                     // Dann von vorne beginnen
                     //
-                    if (strcmp("#eoc", credits_displayed[CreditsOffset + i]) == 0)
+                    if (std::strcmp("#eoc", credits_displayed[CreditsOffset + i]) == 0)
                         CreditsOffset = 0;
                 }
             }
@@ -1471,7 +1472,7 @@ void MenuClass::DoMenu() {
                     ShowLanguageInfoCounter = 2000.0f;
 
                     // Sprache feststellen und schauen, welche Grafik wir anzeigen müssen
-                    if (strcmp(TextArray[TEXT::BENUTZTE_GRAFIK], "0") == 0)
+                    if (std::strcmp(TextArray[TEXT::BENUTZTE_GRAFIK], "0") == 0)
                         Sprachgrafik = 0;  // deutsch ?
                     else
                         Sprachgrafik = 1;  // oder doch englisch ?
@@ -1798,7 +1799,7 @@ void MenuClass::DoMenu() {
             static unsigned char Taste;
             static bool possible = false;
 
-            int newname_len = strlen(NewName);
+            int newname_len = std::strlen(NewName);
             int newname_maxlen = 16;
 
             if (CommandLineParams.Arcade)
@@ -1922,7 +1923,7 @@ void MenuClass::DoMenu() {
 
                     } else {
                         Taste = i;
-                        if (strlen(GetKeyName(Taste)) == 1 && newname_len < newname_maxlen) {
+                        if (std::strlen(GetKeyName(Taste)) == 1 && newname_len < newname_maxlen) {
                             char keyname[2];
                             strcpy_s(keyname, GetKeyName(Taste));
                             keyname[0] = toupper(keyname[0]);
@@ -2389,7 +2390,7 @@ void MenuClass::ShowSavegames(int Highlight) {
 inline long CalcChecksum(const HighscoreStruct& Highscore) {
 
     long Pruefsumme = 0;
-    unsigned int const nameLen = strlen(Highscore.Name);
+    unsigned int const nameLen = std::strlen(Highscore.Name);
     for (unsigned int j = 0; j < nameLen; j++)
         Pruefsumme += Highscore.Name[j];
 
@@ -2542,7 +2543,7 @@ void MenuClass::ShowLanguageInfo() {
     // Determine size and location of background rectangle:
     unsigned int longest_line = 0;
     for (int i = 0; i < 9; i++) {
-        unsigned int const line_len = strlen(TextArray[i]);
+        unsigned int const line_len = std::strlen(TextArray[i]);
         if (line_len > longest_line) {
             longest_line = line_len;
         }
@@ -2561,7 +2562,7 @@ void MenuClass::ShowLanguageInfo() {
                            static_cast<float>(rect_y + border), TextArray[TEXT::BENUTZTES_FILE], D3DCOLOR_RGBA(255, 255, 255, a1));
 
     for (int i = 0; i < 9; i++) {
-        unsigned int const len = strlen(TextArray[i]);
+        unsigned int const len = std::strlen(TextArray[i]);
         int xoff = 320 - (len - 1) * xoff_inc / 2;
         for (unsigned int j = 0; j < len; j++) {
             char c[2];
