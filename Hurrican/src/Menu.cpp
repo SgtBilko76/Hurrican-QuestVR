@@ -13,11 +13,8 @@
 // Include Dateien
 // --------------------------------------------------------------------------------------
 
-#if !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__)
-#include <sys/timeb.h>
-#endif
-#include <stdio.h>
-#include <time.h>
+#include <cstdio>
+#include <ctime>
 #include <array>
 #include <string>
 #include "Console.hpp"
@@ -2166,8 +2163,8 @@ void MenuClass::DoMenu() {
                     // Werte von Spieler auf das Savegame übertragen
                     // Name des Save games aus aktuellem Datum und aktueller Zeit erstelen
 
-                    time_t seconds = time(nullptr);
-                    struct tm *ptm = localtime(&seconds);
+                    time_t seconds = std::time(nullptr);
+                    struct tm *ptm = std::localtime(&seconds);
 
                     /*
                                         sprintf_s(timestr,"%02i-%02i-%04i %02i:%02i",
