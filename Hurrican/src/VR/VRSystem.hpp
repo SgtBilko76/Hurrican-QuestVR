@@ -18,7 +18,7 @@ struct Config {
     float screenWidth = 3.2f;      // metres, 4:3 aspect
     float screenDistance = 2.8f;   // metres in front of the (recentered) viewer
     float screenHeight = -0.15f;   // vertical offset of the screen centre vs. the eyes
-    float depthStrength = 0.6f;    // 0 = flat, 1 = full layer separation (1.0 was reported as too strong)
+    float depthStrength = 0.10f;   // 0 = flat, 1 = full layer separation (tuned down from 1.0 in steps on user feedback)
     float refreshRate = 72.0f;     // requested display refresh rate (0 = runtime default)
 };
 
