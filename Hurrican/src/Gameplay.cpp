@@ -316,14 +316,16 @@ void GameLoop() {
     // Hintergrund und Parallax Layer anzeigen
     DirectGraphics.SetColorKeyMode();
     TileEngine.CalcRenderRange();
-    TileEngine.DrawBackground();
+    TileEngine.DrawBackground();  // (VR: selects the sky/parallax layers itself)
 
     // Evtl. rotieren, wenn Screen wackelt
     if (WackelMaximum > 0.0f)
         ScreenWackeln();
 
     // Level anzeigen
+    DirectGraphics.SetVRLayer(VR_LAYER_BACK_TILES);
     TileEngine.DrawBackLevel();
+    DirectGraphics.SetVRLayer(VR_LAYER_GAME);
     TileEngine.DrawFrontLevel();
 
     // Gegner anzeigen
@@ -368,12 +370,14 @@ void GameLoop() {
     // Overlay Tiles des Levels zeigen und Spieler und Objekte verdecken
     DirectGraphics.SetColorKeyMode();
 
+    DirectGraphics.SetVRLayer(VR_LAYER_OVERLAY);
     TileEngine.DrawWater();
     TileEngine.DrawBackLevelOverlay();
     TileEngine.DrawOverlayLevel();
     TileEngine.DrawShadow();
 
     // HUD anhandeln
+    DirectGraphics.SetVRLayer(VR_LAYER_HUD);
     HUD.DoHUD();
 
     // ggf. BossHUD anzeigen
@@ -629,6 +633,23 @@ void CreateDefaultControlsConfig(int player) {
         Player[0].JoystickSchwelle = 500.0f;
         Player[0].JoystickMode = JOYMODE_JOYPAD;
         Player[0].ControlType = CONTROLTYPE_KEYBOARD;
+
+#if defined(USE_VR)
+        // Meta Quest: Player 1 uses the Touch controllers (virtual joystick 0, see VRInput.hpp)
+        Player[0].JoystickIndex = 0;
+        Player[0].ControlType = CONTROLTYPE_JOY;
+        Player[0].JoystickMode = JOYMODE_JOYPAD;
+        Player[0].Walk_UseAxxis = true;
+        Player[0].Look_UseAxxis = true;
+        Player[0].JoystickSchwelle = 400.0f;
+        Player[0].AktionJoystick[AKTION_JUMP] = 0;         // A
+        Player[0].AktionJoystick[AKTION_SHOOT] = 4;        // right trigger
+        Player[0].AktionJoystick[AKTION_BLITZ] = 1;        // B
+        Player[0].AktionJoystick[AKTION_POWERLINE] = 2;    // X
+        Player[0].AktionJoystick[AKTION_GRANATE] = 3;      // Y
+        Player[0].AktionJoystick[AKTION_SMARTBOMB] = 5;    // left trigger
+        Player[0].AktionJoystick[AKTION_WAFFEN_CYCLE] = 6; // right grip
+#endif  // USE_VR
 
 #if defined(GCW)
         // On GCW Zero, the Player 1 default joy index is the internal controls and both players use joystick:

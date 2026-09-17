@@ -654,6 +654,14 @@ bool PlayerClass::GetPlayerInput() {
                         Aktion[AKTION_OBEN] = true;
                 }
 
+                // VR Touch controllers: the right thumbstick always looks up/down
+                if (DirectInput.Joysticks[JoystickIndex].IsVirtual) {
+                    if (DirectInput.Joysticks[JoystickIndex].JoystickY2 > JoystickSchwelle)
+                        Aktion[AKTION_UNTEN] = true;
+                    else if (DirectInput.Joysticks[JoystickIndex].JoystickY2 < -JoystickSchwelle)
+                        Aktion[AKTION_OBEN] = true;
+                }
+
                 // Joystick buttons auslesen
                 for (int i = AKTION_LINKS; i <= AKTION_WAFFEN_CYCLE; i++) {
                     if (AktionJoystick[i] != -1 &&

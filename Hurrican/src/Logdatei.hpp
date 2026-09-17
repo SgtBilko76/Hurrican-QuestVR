@@ -14,14 +14,18 @@
 
 class Logdatei : public std::ostringstream {
   private:
-    const std::string filename_;  ///< Name of the logfile
-    std::ofstream file;           ///< Filestream of the logfile
+    std::string filename_;  ///< Name of the logfile
+    std::ofstream file;     ///< Filestream of the logfile
     // FIXME: This doesn't work currently. It's not a nice solution, anyway.
     bool delLogFile;  // Logfile am Ende löschen, wenn kein Fehler auftrat
 
   public:
     Logdatei(const std::string &filename);
     virtual ~Logdatei();
+
+    // Close the current logfile and continue logging into `filename` instead.
+    // Used on Android, where the writable directory is only known at runtime.
+    void Reopen(const std::string &filename);
 
     void flush();
 

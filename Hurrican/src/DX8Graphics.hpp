@@ -32,7 +32,22 @@
 enum class BlendModeEnum {
   ADDITIV,
   COLORKEY,
-  WHITE
+  WHITE,
+  NONE
+};
+
+// Depth layers of the stereoscopic (Meta Quest) presentation. In non-VR builds
+// DirectGraphicsClass::SetVRLayer() is a no-op, so the markers in the draw code cost nothing.
+// Must match VRRender::DEPTH_FACTORS (src/VR/VRRender.cpp).
+enum VRLayerEnum {
+  VR_LAYER_SKY = 0,        // background image
+  VR_LAYER_PARALLAX_FAR,   // ParallaxLayer[0]
+  VR_LAYER_PARALLAX_NEAR,  // ParallaxLayer[1], elevator layer, clouds
+  VR_LAYER_BACK_TILES,     // DrawBackLevel
+  VR_LAYER_GAME,           // front tiles, enemies, player, projectiles, particles
+  VR_LAYER_OVERLAY,        // water, overlay tiles, shadow
+  VR_LAYER_HUD,            // HUD, texts, menus, console
+  VR_LAYER_COUNT
 };
 
 #if defined(USE_GL2) || defined(USE_GL3)
@@ -101,8 +116,19 @@ class DirectGraphicsClass {
 #if (defined(USE_GL2) || defined(USE_GL3)) && defined(USE_FBO)
     CFbo RenderBuffer;
 #endif
+#if defined(USE_VR)
+    int CurrentVRLayer;
+    bool VRReady;
+    void ApplyBlendMode();
+#endif
 
   public:
+    // Select the depth layer for the following draw calls (VR builds only, see VRLayerEnum)
+#if defined(USE_VR)
+    void SetVRLayer(int layer);
+#else
+    inline void SetVRLayer(int) {}
+#endif
     void ShowBackBuffer();  // Present aufrufen
 
     DirectGraphicsClass();   // Konstruktor

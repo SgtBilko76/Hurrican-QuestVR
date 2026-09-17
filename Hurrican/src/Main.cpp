@@ -42,6 +42,12 @@ namespace fs = std::filesystem;
 #include "HUD.hpp"
 #include "Partikelsystem.hpp"
 #include "Projectiles.hpp"
+#if defined(__ANDROID__)
+#  include "Android/AndroidPlatform.hpp"
+#endif
+#if defined(USE_VR)
+#  include "VR/VRSystem.hpp"
+#endif
 
 // Memory Leaks
 
@@ -337,21 +343,61 @@ std::string getXdgDir(const char *xdgVar, const char *fallback) {
 // --------------------------------------------------------------------------------------
 // Win-Main Funktion
 // --------------------------------------------------------------------------------------
+#if !defined(__ANDROID__)
+// On desktop we provide the real main(); on Android SDL's <SDL_main.h> renames this
+// function to SDL_main(), which SDLActivity looks up in libhurrican.so and calls.
 #undef main
 #define main main
+#endif
 int main(int argc, char *argv[]) {
     GamePaused = false;
 
+#if defined(__ANDROID__)
+    AndroidPlatform::RedirectStdioToLogcat();
+    const std::string androidBase = AndroidPlatform::GetInternalStoragePath();
+    Protokoll.Reopen(androidBase + "/Game_Log.txt");
+    Protokoll << "Hurrican for Android/Meta Quest starting, files dir: " << androidBase << std::endl;
+
+    // SDL hints must be set before SDL_Init (which happens in DirectGraphics.Init)
+    SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "0");            // keep our loop (and OpenXR) alive
+    SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE_PAUSEAUDIO, "1");  // but mute audio while in background
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+#  if defined(USE_VR)
+    SDL_SetHint(SDL_HINT_VIDEO_EXTERNAL_CONTEXT, "1");  // we own the EGL context (see VRSystem)
+#  endif
+
+    if (!AndroidPlatform::PrepareAssets(androidBase)) {
+        Protokoll << "Failed to extract the game data from the APK!" << std::endl;
+        return 1;
+    }
+#endif
+
     FillCommandLineParams(argc, argv);
+
+#if defined(__ANDROID__)
+    CommandLineParams.RunWindowMode = ScreenMode::FULLSCREEN_STRETCHED;
+#  if defined(USE_VR)
+    CommandLineParams.VSync = false;  // frame pacing comes from xrWaitFrame
+#  endif
+#endif
 
     // Set game's data path:
     // First, see if a command line parameter was passed:
+#if defined(__ANDROID__)
+    g_storage_ext = androidBase;
+    g_save_ext = androidBase;
+    g_config_ext = androidBase;
+    if (false) {
+#else
     if (CommandLineParams.DataPath) {
+#endif
         g_storage_ext = CommandLineParams.DataPath;
         free(CommandLineParams.DataPath);
         CommandLineParams.DataPath = nullptr;
     } else {
-#  ifdef USE_STORAGE_PATH
+#  if defined(__ANDROID__)
+        // already set above
+#  elif defined(USE_STORAGE_PATH)
         // A data-files storage path has been specified in the Makefile:
         g_storage_ext = USE_STORAGE_PATH;
         // Attempt to locate the dir
@@ -367,13 +413,19 @@ int main(int argc, char *argv[]) {
     }
 
     // Set game's save path (save games, settings, logs, high-scores, etc)
+#if defined(__ANDROID__)
+    if (false) {
+#else
     if (CommandLineParams.SavePath) {
+#endif
         g_save_ext = CommandLineParams.SavePath;
         free(CommandLineParams.SavePath);
         CommandLineParams.SavePath = nullptr;
         g_config_ext = g_save_ext;
     } else {
-#  ifdef USE_HOME_DIR
+#  if defined(__ANDROID__)
+        // already set above
+#  elif defined(USE_HOME_DIR)
         // Makefile is specifying this is a UNIX machine and we should write saves, settings, etc to $XDG_CONFIG_HOME/hurrican/ dir
         g_config_ext = getXdgDir("XDG_CONFIG_HOME", "/.config/hurrican");
 
@@ -408,6 +460,16 @@ int main(int argc, char *argv[]) {
                 case SDL_QUIT:
                     GameRunning = false;
                     break;
+#if defined(__ANDROID__) && !defined(USE_VR)
+                // Flat Android build: SDL parks the GL context while we are in the
+                // background, so stop rendering until we are back.
+                case SDL_APP_WILLENTERBACKGROUND:
+                    GamePaused = true;
+                    break;
+                case SDL_APP_DIDENTERFOREGROUND:
+                    GamePaused = false;
+                    break;
+#endif
                 case SDL_JOYDEVICEADDED:
                 case SDL_JOYDEVICEREMOVED:
                     if (event.type == SDL_JOYDEVICEADDED)
@@ -422,6 +484,17 @@ int main(int argc, char *argv[]) {
                     break;
             }
         }
+
+#if defined(USE_VR)
+        // OpenXR drives pausing: while the session is not running (headset off, system
+        // menu, app in background) just keep the event loop alive.
+        VR::PollEvents();
+        if (!VR::SessionRunning()) {
+            SDL_Delay(10);
+            continue;
+        }
+        VR::BeginFrame();  // xrWaitFrame paces the loop to the display refresh rate
+#endif
 
             // DKS - Exceptions can now be disabled, reducing unnecessary code-bloat:
 #ifndef USE_NO_EXCEPTIONS
@@ -455,6 +528,8 @@ int main(int argc, char *argv[]) {
                 //
                 if (DEMORecording || DEMOPlaying)
                     Timer.setSpeedFactor(0.28f);
+            } else {
+                SDL_Delay(10);
             }
         }
             // DKS - Exceptions can now be disabled, reducing unnecessary code-bloat:
@@ -860,7 +935,8 @@ bool Heartbeat() {
         case GameStateEnum::OUTTRO: {
             pOuttro->DoOuttro();
 
-            if (KeyDown(DIK_ESCAPE))  // Intro beenden ?
+            if (KeyDown(DIK_ESCAPE) ||
+                (DirectInput.JoysticksFound > 0 && DirectInput.Joysticks[0].ButtonEscapePressed()))  // Intro beenden ?
             {
                 SoundManager.StopSong(MUSIC::OUTTRO, false);
                 delete (pOuttro);
@@ -902,6 +978,7 @@ bool Heartbeat() {
         ShowFPS();
 
     // GUI abhandeln
+    DirectGraphics.SetVRLayer(VR_LAYER_HUD);
     GUI.Run();
 
     // Konsole abhandeln

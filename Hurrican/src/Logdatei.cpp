@@ -21,8 +21,23 @@ Logdatei::Logdatei(const std::string &filename)
 
     if (!file) {
         std::cerr << "Unable to open logfile (" << filename << ")!" << std::endl;
+#if !defined(__ANDROID__)
         exit(EXIT_FAILURE);
+#endif
+        // On Android this object is constructed while the shared library is loaded,
+        // before a writable directory is known; Reopen() is called from main().
     }
+}
+
+void Logdatei::Reopen(const std::string &filename) {
+    flush();
+    if (file.is_open())
+        file.close();
+    file.clear();
+    filename_ = filename;
+    file.open(filename, std::ios::out | std::ios::trunc);
+    if (!file)
+        std::cerr << "Unable to open logfile (" << filename << ")!" << std::endl;
 }
 
 Logdatei::~Logdatei() {
@@ -31,8 +46,10 @@ Logdatei::~Logdatei() {
     file.close();
 
     // Kein Fehler im Game? Dann Logfile löschen
-    if (delLogFile)
-        fs::remove(fs::path(filename_));
+    if (delLogFile) {
+        std::error_code ec;
+        fs::remove(fs::path(filename_), ec);
+    }
 }
 
 /**

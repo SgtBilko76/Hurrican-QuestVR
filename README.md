@@ -56,6 +56,33 @@ Debug
 * -DDISABLE_MEMPOOLING=ON : Bypass pooled memory manager
 * -DCMAKE_BUILD_TYPE=<Asan|Ubsan>: Enable the Address or Undefined Behaviour Sanitizer
 
+### Building for Meta Quest (standalone VR APK)
+
+The `Hurrican/android` Gradle project builds a standalone Quest APK: the game is presented on a
+large virtual screen whose draw layers (sky, parallax planes, tiles, sprites, overlays, HUD) are
+composited per eye at different depths for a stereoscopic "diorama" effect, and the Touch
+controllers are mapped to the game (remappable in *Options → Define Buttons*).
+
+Requirements: Android SDK with NDK 27, CMake 3.22 (SDK component), JDK 17, a Quest 2/3/Pro.
+SDL2, SDL2_image and SDL2_mixer (with libxmp for the tracker music) are built from the
+submodules; the OpenXR loader comes from the Khronos Maven AAR via prefab.
+
+    git clone --recurse-submodules https://github.com/HurricanGame/Hurrican.git
+    cd Hurrican/Hurrican/android
+    ./gradlew assembleDebug                    # -PhurricanPlatform=ANDROID for a flat, non-VR test build
+    adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+The game data is packed into the APK and extracted to the app's private storage on first
+start. Settings, savegames and `vr.cfg` (virtual screen size/distance, depth strength,
+refresh rate) live there too:
+`/sdcard/Android/data/com.hurricangame.quest/files` is *not* used; use
+`adb shell run-as com.hurricangame.quest` to inspect `files/`.
+
+Default controls: left stick = move / look up / duck, right stick = look up/down,
+A = jump, right trigger = shoot, B = lightning, X = powerline, Y = grenade,
+left trigger = smart bomb, right grip = cycle weapon, Menu (left controller) = pause / back,
+click both sticks = recenter the screen.
+
 ### Running
 
 To launch Hurrican, go back under the Hurrican folder

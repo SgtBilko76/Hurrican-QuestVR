@@ -19,6 +19,9 @@
 #include "Globals.hpp"
 #include "Logdatei.hpp"
 #include "Main.hpp"
+#if defined(USE_VR)
+#  include "VR/VRInput.hpp"
+#endif
 
 // --------------------------------------------------------------------------------------
 // Variablen
@@ -101,10 +104,22 @@ bool DirectInputClass::Init() {
         Protokoll << "Loaded " << res << " mappings from game controller db" << std::endl;
     }
 #  endif
-    JoysticksFound = SDL_NumJoysticks();
+    for (int i = 0; i < JoysticksFound; i++)
+        Joysticks[i].Exit(i);
 
-    for (int i = 0; i < JoysticksFound; i++) {
-        if (!Joysticks[i].Init(i)) {
+    int first_sdl_slot = 0;
+#if defined(USE_VR)
+    // Slot 0 is always the Touch controllers; Bluetooth gamepads follow after it
+    Joysticks[0].InitVirtual("Quest Touch");
+    JoystickFound = true;
+    first_sdl_slot = 1;
+#endif
+    int const sdl_joysticks = std::min(SDL_NumJoysticks(), MAX_JOYSTICKS - first_sdl_slot);
+    JoysticksFound = first_sdl_slot + sdl_joysticks;
+
+    for (int sdl_idx = 0; sdl_idx < sdl_joysticks; sdl_idx++) {
+        int const i = sdl_idx + first_sdl_slot;
+        if (!Joysticks[i].Init(sdl_idx)) {
             Protokoll << "Error opening joystick" << std::endl;
         } else {
             JoystickFound = true;
@@ -179,6 +194,9 @@ void DirectInputClass::AcquireKeyboard() {}
 
 void DirectInputClass::UpdateJoysticks() {
     SDL_PumpEvents();
+#if defined(USE_VR)
+    VRInput::Update();
+#endif
     for (int i = 0; i < JoysticksFound; i++)
         Joysticks[i].Update();
 }
@@ -240,6 +258,12 @@ char *DirectInputClass::MapButtonToString(int joy_idx, int button) {
     if (button < 0) {
         return TextArray[TEXT::NICHT_DEFINIERT];
     } else {
+#if defined(USE_VR)
+        if (joy_idx >= 0 && joy_idx < MAX_JOYSTICKS && Joysticks[joy_idx].IsVirtual) {
+            snprintf(buf, sizeof(buf), "%s", VRInput::ButtonName(button));
+            return buf;
+        }
+#endif
 #ifdef GCW
         // Special case for GCW Zero's internal controls:
         if (joy_idx == GetInternalJoystickIndex() && button < GCW_MAX_BUTTONS) {

@@ -28,6 +28,14 @@
 #if defined(USE_EGL_SDL) || defined(USE_EGL_RAW) || defined(USE_EGL_RPI)
 #include "eglport.hpp"
 #endif
+#if defined(USE_VR)
+#  if !defined(USE_GL3) || !defined(USE_FBO)
+#    error "USE_VR requires RENDERER=GLES3 and FBO support"
+#  endif
+#include "VR/VRInput.hpp"
+#include "VR/VRRender.hpp"
+#include "VR/VRSystem.hpp"
+#endif
 
 // --------------------------------------------------------------------------------------
 // sonstige Variablen
@@ -53,9 +61,14 @@ DirectGraphicsClass::DirectGraphicsClass() {
     SupportedETC1 = false;
     SupportedPVRTC = false;
     use_shader = shader_t::COLOR;
+    BlendMode = BlendModeEnum::NONE;
 
 #if defined(USE_GL2) || defined(USE_GL3)
     ProgramCurrent = PROGRAM_NONE;
+#endif
+#if defined(USE_VR)
+    CurrentVRLayer = VR_LAYER_GAME;
+    VRReady = false;
 #endif
 }
 
@@ -84,7 +97,11 @@ bool DirectGraphicsClass::Init(std::uint32_t dwBreite, std::uint32_t dwHoehe, st
         || CommandLineParams.ScreenNoise;
 
     int const ScreenDepth = CommandLineParams.ScreenDepth;
-#if SDL_VERSION_ATLEAST(2, 0, 0)
+#if defined(USE_VR)
+    // The window only exists for SDL's Android lifecycle/JNI; we render through our own
+    // EGL context into OpenXR swapchains (SDL_HINT_VIDEO_EXTERNAL_CONTEXT is set in main()).
+    uint32_t flags = 0;
+#elif SDL_VERSION_ATLEAST(2, 0, 0)
     uint32_t flags = SDL_WINDOW_OPENGL;
 #else /* SDL 1.2 */
 #if defined(USE_EGL_SDL) || defined(USE_EGL_RAW) || defined(USE_EGL_RPI)
@@ -174,12 +191,27 @@ bool DirectGraphicsClass::Init(std::uint32_t dwBreite, std::uint32_t dwHoehe, st
         return false;
     }
 
+#if defined(USE_VR)
+    GLcontext = nullptr;
+    VR::LoadConfig(g_config_ext + "/vr.cfg");
+    if (!VR::CreateEGL()) {
+        Protokoll << "Failed to create the EGL context for VR" << std::endl;
+        return false;
+    }
+    // Layer render targets (2x the logical resolution keeps the pixel art crisp) and
+    // the composite shader; must exist before SetupFramebuffers() selects a layer.
+    if (!VRRender::Init(g_storage_ext + "/data/shaders/320", RENDERWIDTH * 2, RENDERHEIGHT * 2)) {
+        Protokoll << "Failed to create the VR layer framebuffers" << std::endl;
+        return false;
+    }
+#else
     // Create an OpenGL context associated with the window.
     GLcontext = SDL_GL_CreateContext(Window);
     if (GLcontext == nullptr) {
         Protokoll << "Failed to create GL context: " << SDL_GetError() << std::endl;
         return false;
     }
+#endif
 #else /* SDL 1.2 */
     // SDL_WM_SetCaption("Hurrican", "Hurrican");
 
@@ -213,7 +245,7 @@ bool DirectGraphicsClass::Init(std::uint32_t dwBreite, std::uint32_t dwHoehe, st
     // DKS - BEGIN VSYNC-RELATED CODE:
     // If not using EGL, i.e. using SDL's GL handling, some more handling of
     //  Vsync is necessary now that context has been created:
-#if !defined(USE_EGL_SDL) && !defined(USE_EGL_RAW) && !defined(USE_EGL_RPI)
+#if !defined(USE_EGL_SDL) && !defined(USE_EGL_RAW) && !defined(USE_EGL_RPI) && !defined(USE_VR)
 #if SDL_VERSION_ATLEAST(2, 0, 0)
     {
         int retval = -1;
@@ -299,6 +331,15 @@ bool DirectGraphicsClass::Init(std::uint32_t dwBreite, std::uint32_t dwHoehe, st
     if (!SetDeviceInfo())
         return false;
 
+#if defined(USE_VR)
+    if (!VR::Init()) {
+        Protokoll << "OpenXR initialisation failed" << std::endl;
+        return false;
+    }
+    VRReady = true;
+    SetVRLayer(VR_LAYER_GAME);
+#endif
+
     Protokoll << "\n-> OpenGL init successful!\n" << std::endl;
 
     // DegreetoRad-Tabelle füllen
@@ -323,8 +364,15 @@ bool DirectGraphicsClass::Exit() {
     RenderBuffer.Close();
 #endif /* USE_FBO */
 #endif /* USE_GL2 || USE_GL3 */
+#if defined(USE_VR)
+    VRReady = false;
+    VR::Shutdown();
+    VRRender::Shutdown();
+    VR::DestroyEGL();
+#endif
 #if SDL_VERSION_ATLEAST(2, 0, 0)
-    SDL_GL_DeleteContext(GLcontext);
+    if (GLcontext != nullptr)
+        SDL_GL_DeleteContext(GLcontext);
     SDL_DestroyWindow(Window);
 #endif
 #if defined(USE_EGL_SDL) || defined(USE_EGL_RAW) || defined(USE_EGL_RPI)
@@ -505,9 +553,12 @@ void DirectGraphicsClass::SetColorKeyMode() {
     if (BlendMode == BlendModeEnum::COLORKEY)
         return;
 
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
     BlendMode = BlendModeEnum::COLORKEY;
+#if defined(USE_VR)
+    ApplyBlendMode();
+#else
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+#endif
 }
 
 // --------------------------------------------------------------------------------------
@@ -518,9 +569,12 @@ void DirectGraphicsClass::SetWhiteMode() {
     if (BlendMode == BlendModeEnum::WHITE)
         return;
 
-    glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA);
-
     BlendMode = BlendModeEnum::WHITE;
+#if defined(USE_VR)
+    ApplyBlendMode();
+#else
+    glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA);
+#endif
 }
 
 // --------------------------------------------------------------------------------------
@@ -531,10 +585,51 @@ void DirectGraphicsClass::SetAdditiveMode() {
     if (BlendMode == BlendModeEnum::ADDITIV)
         return;
 
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-
     BlendMode = BlendModeEnum::ADDITIV;
+#if defined(USE_VR)
+    ApplyBlendMode();
+#else
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+#endif
 }
+
+#if defined(USE_VR)
+// --------------------------------------------------------------------------------------
+// VR: the depth layers are transparent RGBA targets that get composited later, so the
+// blend functions must also produce a correct (premultiplied) alpha channel:
+//  - colorkey: classic "over" -> premultiplied over accumulation
+//  - additive/white: colour is added, coverage stays -> composite adds on top of the
+//    layers behind, exactly like drawing into one opaque buffer did on the desktop
+//    (the desktop target has no alpha, i.e. DST_ALPHA == 1)
+// --------------------------------------------------------------------------------------
+
+void DirectGraphicsClass::ApplyBlendMode() {
+    switch (BlendMode) {
+        case BlendModeEnum::COLORKEY:
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            break;
+        case BlendModeEnum::ADDITIV:
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
+            break;
+        case BlendModeEnum::WHITE:
+            glBlendFuncSeparate(GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
+            break;
+        default:
+            break;
+    }
+}
+
+// --------------------------------------------------------------------------------------
+// VR: select the depth layer the following draw calls go into
+// --------------------------------------------------------------------------------------
+
+void DirectGraphicsClass::SetVRLayer(int layer) {
+    if (layer < 0 || layer >= VR_LAYER_COUNT)
+        layer = VR_LAYER_GAME;
+    CurrentVRLayer = layer;
+    SelectBuffer(true);
+}
+#endif
 
 // --------------------------------------------------------------------------------------
 // Renderstates für linearen Texturfilter ein/ausschalten
@@ -758,6 +853,46 @@ void DirectGraphicsClass::SetTexture(int idx) {
 // --------------------------------------------------------------------------------------
 
 void DirectGraphicsClass::ShowBackBuffer() {
+#if defined(USE_VR)
+    // Stereoscopic presentation: composite the depth layers into both eye buffers and
+    // hand the frame to the OpenXR compositor. Nothing is drawn to SDL's window.
+    if (VRReady) {
+        VR::PollEvents();
+        if (VRInput::TakeRecenterRequest())
+            VR::Recenter();
+
+        bool rendered = false;
+        if (VR::BeginFrame() && VR::LocateViews()) {
+            for (int eye = 0; eye < VR::EyeCount(); eye++) {
+                int w = 0, h = 0;
+                const GLuint fbo = VR::AcquireEyeFramebuffer(eye, w, h);
+                if (fbo == 0)
+                    continue;
+                glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                glViewport(0, 0, w, h);
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+
+                glm::mat4x4 proj, view;
+                VR::GetEyeMatrices(eye, proj, view);
+                VRRender::CompositeEye(proj, view, VR::ScreenModel(), VR::config.screenWidth,
+                                       VR::config.screenDistance, VR::config.depthStrength, VR::SwapchainIsSRGB());
+                VR::ReleaseEyeFramebuffer(eye);
+            }
+            rendered = true;
+        }
+        if (VR::FrameInProgress())
+            VR::EndFrame(rendered);
+
+        // The composite changed GL state the engine caches
+        ProgramCurrent = PROGRAM_NONE;
+        ApplyBlendMode();
+        VRRender::ClearLayers();
+        SetVRLayer(VR_LAYER_GAME);
+    }
+    return;
+#endif
+
 #if (defined(USE_GL2) || defined(USE_GL3)) && defined(USE_FBO)
     if (RenderBuffer.IsEnabled()) {
         VERTEX2D vertices[4];
@@ -827,6 +962,18 @@ void DirectGraphicsClass::ShowBackBuffer() {
 }
 
 void DirectGraphicsClass::SetupFramebuffers() {
+#if defined(USE_VR)
+    // Everything is rendered into the VR depth layers with the logical 640x480 projection
+    // (scaled by the viewport); there is no window to fit anything into.
+    WindowView.x = WindowView.y = 0;
+    WindowView.w = RENDERWIDTH;
+    WindowView.h = RENDERHEIGHT;
+    RenderView = WindowView;
+    RenderRect = WindowView;
+    SelectBuffer(true);
+    Protokoll << "VR layer resolution: " << VRRender::LayerWidth() << "x" << VRRender::LayerHeight() << std::endl;
+    return;
+#endif
 /* Read the current window size */
 #if SDL_VERSION_ATLEAST(2, 0, 0)
     {
@@ -904,6 +1051,11 @@ void DirectGraphicsClass::SetupFramebuffers() {
 }
 
 void DirectGraphicsClass::ClearBackBuffer() {
+#if defined(USE_VR)
+    VRRender::ClearLayers();
+    SelectBuffer(true);
+    return;
+#endif
 #if (defined(USE_GL2) || defined(USE_GL3)) && defined(USE_FBO)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #endif
@@ -917,6 +1069,17 @@ void DirectGraphicsClass::ClearBackBuffer() {
 
 #if (defined(USE_GL2) || defined(USE_GL3)) && defined(USE_FBO)
 void DirectGraphicsClass::SelectBuffer(bool active) {
+#if defined(USE_VR)
+    if (active) {
+        VRRender::BindLayer(CurrentVRLayer);
+        matProj = matProjRender;
+    } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        g_matModelView = glm::mat4x4(1.0f);
+        matProj = matProjWindow;
+    }
+    return;
+#endif
     if (RenderBuffer.IsEnabled()) {
         if (active) {
             glBindFramebuffer(GL_FRAMEBUFFER, RenderBuffer.GetFramebuffer());

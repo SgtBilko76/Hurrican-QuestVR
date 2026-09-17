@@ -13,7 +13,7 @@
 // Include Dateien
 // --------------------------------------------------------------------------------------
 
-#if !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__)
+#if !defined(__AROS__) && !defined(__MORPHOS__) && !defined(__amigaos4__) && !defined(__ANDROID__)
 #include <sys/timeb.h>
 #endif
 #include <stdio.h>

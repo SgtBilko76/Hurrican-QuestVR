@@ -55,6 +55,7 @@ class DirectJoystickClass {
 
   public:
     bool Active;
+    bool IsVirtual;                             // Not an SDL device: fed by the OpenXR Touch controllers (VR build)
     int JoystickX;                              // Joystick x-Koordinaten
     int JoystickY;                              // Joystick y-Koordinaten
     int JoystickX2;                             // Joystick x-Koordinaten 2. analog Stick
@@ -71,6 +72,10 @@ class DirectJoystickClass {
     void StopForceFeedbackEffect(int nr);
 
     bool Init(int joy);
+
+    // VR build: expose the OpenXR Touch controllers as a joystick (see VRInput.hpp for the
+    // button layout: A B X Y RT LT RG LG RS LS Menu; left stick = axes + POV, right stick = X2/Y2)
+    bool InitVirtual(const std::string &name);
 
     void Exit(int joy);
 

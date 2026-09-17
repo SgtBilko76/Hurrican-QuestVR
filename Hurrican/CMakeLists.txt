@@ -24,8 +24,13 @@ set(CMAKE_CXX_FLAGS_ASAN
     CACHE STRING "Flags used by the C++ compiler during AddressSanitizer builds."
     FORCE)
 
-include(CheckIPOSupported)
-check_ipo_supported(RESULT result OUTPUT output)
+if(ANDROID)
+    # LTO with the NDK works but multiplies link time; not worth it for the Quest build
+    set(result FALSE)
+else()
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT result OUTPUT output)
+endif()
 if(result)
     message(STATUS "IPO supported by compiler, enabled for release builds")
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
@@ -430,6 +435,36 @@ elseif(PLATFORM STREQUAL "PANDORA")
     add_definitions(-DPANDORA -DUSE_EGL_RAW -DUSE_PVRTC -DDEFAULT_SCREENBPP=16)
     set(RENDERER "GLES2")
     add_definitions(-DUSE_FAST_TRIG)
+elseif(PLATFORM STREQUAL "QUEST")
+    # Meta Quest: Android + OpenXR, stereoscopic layer compositing (see src/VR)
+    add_definitions(-DQUEST -DUSE_VR -DUSE_FAST_TRIG)
+    set(RENDERER "GLES3")
+elseif(PLATFORM STREQUAL "ANDROID")
+    # Plain Android SDL window (flat 2D), useful to debug the port without OpenXR
+    add_definitions(-DUSE_FAST_TRIG)
+    set(RENDERER "GLES3")
+endif()
+
+if(ANDROID AND NOT (PLATFORM STREQUAL "QUEST" OR PLATFORM STREQUAL "ANDROID"))
+    message(FATAL_ERROR "Building for Android requires -DPLATFORM=QUEST or -DPLATFORM=ANDROID")
+endif()
+
+if(ANDROID)
+    list(APPEND HURRICAN_SOURCES
+        src/Android/AndroidPlatform.cpp
+        src/Android/AndroidPlatform.hpp
+    )
+endif()
+
+if(PLATFORM STREQUAL "QUEST")
+    list(APPEND HURRICAN_SOURCES
+        src/VR/VRSystem.cpp
+        src/VR/VRSystem.hpp
+        src/VR/VRInput.cpp
+        src/VR/VRInput.hpp
+        src/VR/VRRender.cpp
+        src/VR/VRRender.hpp
+    )
 endif()
 
 # Default to OpenGL 2
@@ -508,7 +543,7 @@ IF(FAST_TRIG)
     ADD_DEFINITIONS(-DUSE_FAST_TRIG)
 ENDIF(FAST_TRIG)
 
-if(UNIX)
+if(UNIX AND NOT ANDROID)
     add_definitions(-DUSE_HOME_DIR)
     add_definitions(-DUSE_STORAGE_PATH="${CMAKE_INSTALL_PREFIX}/share/hurrican/")
 endif()
@@ -516,7 +551,12 @@ endif()
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${CMAKE_SOURCE_DIR}/src/SDLPort)
 include_directories(${CMAKE_SOURCE_DIR}/3rdparty/glm)
-add_executable(${PROJECT_NAME} ${HURRICAN_SOURCES})
+if(ANDROID)
+    # SDLActivity dlopen()s libhurrican.so and calls its exported SDL_main()
+    add_library(${PROJECT_NAME} SHARED ${HURRICAN_SOURCES})
+else()
+    add_executable(${PROJECT_NAME} ${HURRICAN_SOURCES})
+endif()
 
 # Enable pre compiled headers for way better compile times
 OPTION(USE_PRECOMPILED_HEADERS "Enable pre compiled headers for better compile times" ON)
@@ -531,6 +571,72 @@ IF(OPENMPT)
     ADD_DEFINITIONS(-DUSE_OPENMPT)
     target_link_libraries(${PROJECT_NAME} openmpt)
 ENDIF(OPENMPT)
+
+if(ANDROID)
+    # ---------------------------------------------------------------------------
+    # Android / Meta Quest: build SDL2, SDL2_image and SDL2_mixer from the
+    # submodules in 3rdparty/. SDL2 is shared (SDLActivity loads it), the two
+    # satellite libraries are linked statically into libhurrican.so.
+    # GL is used directly through <GLES3/gl32.h>, no libepoxy needed.
+    # ---------------------------------------------------------------------------
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    set(SDL_TEST OFF CACHE BOOL "" FORCE)
+    set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+    add_subdirectory(3rdparty/SDL EXCLUDE_FROM_ALL)
+    # The static SDL2_image/SDL2_mixer builds look for SDL2::SDL2-static; point them at
+    # the shared SDL2 we actually ship (SDLActivity loads libSDL2.so at startup).
+    add_library(SDL2::SDL2-static ALIAS SDL2)
+
+    set(BUILD_SHARED_LIBS OFF)
+    set(SDL2IMAGE_VENDORED OFF CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_DEPS_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_BACKEND_STB ON CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_INSTALL OFF CACHE BOOL "" FORCE)
+    foreach(fmt AVIF JXL TIF WEBP SVG XCF XPM XV QOI PNM PCX LBM GIF TGA)
+        set(SDL2IMAGE_${fmt} OFF CACHE BOOL "" FORCE)
+    endforeach()
+    set(SDL2IMAGE_PNG ON CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_BMP ON CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_JPG ON CACHE BOOL "" FORCE)
+    add_subdirectory(3rdparty/SDL_image EXCLUDE_FROM_ALL)
+
+    set(SDL2MIXER_VENDORED ON CACHE BOOL "" FORCE)
+    set(SDL2MIXER_DEPS_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_INSTALL OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_CMD OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_FLAC OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_GME OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_MP3 OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_MIDI OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_OPUS OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_WAVPACK OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_VORBIS "" CACHE STRING "" FORCE)
+    set(SDL2MIXER_WAVE ON CACHE BOOL "" FORCE)
+    set(SDL2MIXER_MOD ON CACHE BOOL "" FORCE)
+    set(SDL2MIXER_MOD_MODPLUG OFF CACHE BOOL "" FORCE)
+    set(SDL2MIXER_MOD_XMP ON CACHE BOOL "" FORCE)          # Impulse Tracker music (data/music/*.it)
+    set(SDL2MIXER_MOD_XMP_SHARED OFF CACHE BOOL "" FORCE)
+    set(LIBXMP_PIC ON CACHE BOOL "" FORCE)
+    add_subdirectory(3rdparty/SDL_mixer EXCLUDE_FROM_ALL)
+
+    target_link_libraries(${PROJECT_NAME}
+        SDL2::SDL2
+        SDL2_image::SDL2_image-static
+        SDL2_mixer::SDL2_mixer-static
+        GLESv3 EGL android log)
+
+    if(PLATFORM STREQUAL "QUEST")
+        # OpenXR loader + headers come from the Khronos AAR via Gradle prefab
+        find_package(OpenXR REQUIRED CONFIG)
+        target_link_libraries(${PROJECT_NAME} OpenXR::openxr_loader)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE XR_USE_PLATFORM_ANDROID=1 XR_USE_GRAPHICS_API_OPENGL_ES=1)
+    endif()
+else()
 
 set(SDL2_BUILDING_LIBRARY TRUE)
 find_package(SDL2)
@@ -564,13 +670,17 @@ else()
     target_link_libraries(${PROJECT_NAME} ${SDL_LIBRARY} ${SDL_MIXER_LIBRARIES} ${SDL_IMAGE_LIBRARIES})
 endif()
 
+endif() # ANDROID
+
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.1)
     target_link_libraries(${PROJECT_NAME} stdc++fs)
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0 AND NOT ANDROID)
     target_link_libraries(${PROJECT_NAME} c++fs)
 endif()
 
-if(UNIX)
+if(ANDROID)
+    # nothing to install; the APK packages libhurrican.so and the assets
+elseif(UNIX)
     install(PROGRAMS  ${CMAKE_BINARY_DIR}/hurrican   DESTINATION bin/)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/data/      DESTINATION share/hurrican/data)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/lang/      DESTINATION share/hurrican/lang)

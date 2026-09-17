@@ -729,7 +729,10 @@ loadfile:
     Datei.close();
 
     // Temp Datei löschen und speicher freigeben
-    fs::remove(fs::path(TEMP_FILE_PREFIX "temp.map"));
+    {
+        std::error_code ec;  // may not exist / read-only cwd on Android: never throw here
+        fs::remove(fs::path(TEMP_FILE_PREFIX "temp.map"), ec);
+    }
 
     // Liquid Farben setzen
     ColR1 = std::stoi(std::string(&DateiAppendix.Col1[0], 2), nullptr, 16);
@@ -850,6 +853,8 @@ void TileEngineClass::DrawBackground() {
 
     //----- Hintergrund-Bild
 
+    DirectGraphics.SetVRLayer(VR_LAYER_SKY);
+
     if (bScrollBackground)  // Hintergrundbild mitscrollen
     {
         int const x_off = static_cast<int>(XOffset / 5.0f) % RENDERWIDTH;
@@ -871,6 +876,8 @@ void TileEngineClass::DrawBackground() {
 
     //----- Layer ganz hinten (ausser im Flugsack Level)
 
+    DirectGraphics.SetVRLayer(VR_LAYER_PARALLAX_FAR);
+
     xoff = static_cast<int>(XOffset / 3.0f) % RENDERWIDTH;
     yoff = static_cast<float>((LEVELSIZE_Y - SCREENSIZE_Y) * TILESIZE_Y);  // Grösse des Levels in Pixeln (-1 Screen)
     yoff = 220.0f - 150.0f / yoff * YOffset;                               // y-Offset des Layers berechnen
@@ -885,6 +892,8 @@ void TileEngineClass::DrawBackground() {
     ParallaxLayer[0].RenderSprite(0.0f, yoff, 0xFFFFFFFF);
 
     //----- vorletzter Layer
+
+    DirectGraphics.SetVRLayer(VR_LAYER_PARALLAX_NEAR);
 
     yoff = static_cast<float>((LEVELSIZE_Y - SCREENSIZE_Y) * TILESIZE_Y);  // Grösse des Levels in Pixeln (-1 Screen)
     yoff = 200.0f - 200.0f / yoff * YOffset;                               // y-Offset des Layers berechnen
@@ -939,6 +948,8 @@ void TileEngineClass::DrawBackground() {
 
     if (pDragonHack != nullptr && !Console.Showing)
         pDragonHack->Run();
+
+    DirectGraphics.SetVRLayer(VR_LAYER_GAME);
 }
 
 // --------------------------------------------------------------------------------------

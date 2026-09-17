@@ -4,3 +4,12 @@
 [submodule "Hurrican/3rdparty/sdl2-cmake-scripts"]
 	path = Hurrican/3rdparty/sdl2-cmake-scripts
 	url = https://github.com/tcbrindle/sdl2-cmake-scripts.git
+[submodule "Hurrican/3rdparty/SDL"]
+	path = Hurrican/3rdparty/SDL
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "Hurrican/3rdparty/SDL_image"]
+	path = Hurrican/3rdparty/SDL_image
+	url = https://github.com/libsdl-org/SDL_image.git
+[submodule "Hurrican/3rdparty/SDL_mixer"]
+	path = Hurrican/3rdparty/SDL_mixer
+	url = https://github.com/libsdl-org/SDL_mixer.git

@@ -13,6 +13,12 @@
 #include "DX8Joystick.hpp"
 #include "Gameplay.hpp"
 #include "Logdatei.hpp"
+#include "Mathematics.hpp"
+#include <algorithm>
+#include <cmath>
+#if defined(USE_VR)
+#  include "VR/VRInput.hpp"
+#endif
 
 #if SDL_VERSION_ATLEAST(2,0,0)
 #  include <SDL_gamecontroller.h>
@@ -29,8 +35,11 @@ DirectJoystickClass::DirectJoystickClass() :
     CanForceFeedback(false) {
 
     Active = false;
+    IsVirtual = false;
     JoystickX = 0;
     JoystickY = 0;
+    JoystickX2 = 0;
+    JoystickY2 = 0;
     JoystickPOV = -1;
     NumButtons = 0;
     NumAxis = 0;
@@ -61,6 +70,12 @@ DirectJoystickClass::~DirectJoystickClass() {}
 void DirectJoystickClass::ForceFeedbackEffect(int nr) {
     if (UseForceFeedback == false || CanForceFeedback == false)
         return;
+#if defined(USE_VR)
+    if (IsVirtual) {
+        VRInput::Haptic(rumble[nr] / 65535.0f, std::max(60, 100 * nr), 2);
+        return;
+    }
+#endif
 #if SDL_VERSION_ATLEAST(2,0,9)
     SDL_JoystickRumble(lpDIJoystick, rumble[nr], rumble[nr], 100 * nr);
 #endif
@@ -72,6 +87,8 @@ void DirectJoystickClass::ForceFeedbackEffect(int nr) {
 
 void DirectJoystickClass::StopForceFeedbackEffect(int nr) {
     if (UseForceFeedback == false || CanForceFeedback == false)
+        return;
+    if (IsVirtual)
         return;
 #if SDL_VERSION_ATLEAST(2,0,9)
     SDL_JoystickRumble(lpDIJoystick, 0, 0, 0);
@@ -198,7 +215,35 @@ bool DirectJoystickClass::Init(int joy) {
     return true;
 }
 
+bool DirectJoystickClass::InitVirtual(const std::string &name) {
+    lpDIJoystick = nullptr;
+    IsVirtual = true;
+    Active = true;
+    JoystickName = name;
+#if defined(USE_VR)
+    NumButtons = TotalButtons = VRInput::BTN_COUNT;
+    startButton = VRInput::BTN_MENU;
+    enterButton = VRInput::BTN_A;
+    backButton = VRInput::BTN_B;
+    deleteButton = VRInput::BTN_X;
+#else
+    NumButtons = TotalButtons = 0;
+#endif
+    NumAxis = 4;
+    NumHats = 1;
+    lt = rt = 0;
+    CanForceFeedback = true;
+    JoystickButtons.reset();
+    Protokoll << "Virtual joystick: " << JoystickName << " (" << TotalButtons << " buttons)" << std::endl;
+    return true;
+}
+
 void DirectJoystickClass::Exit(int joy) {
+    if (IsVirtual) {
+        Active = false;
+        IsVirtual = false;
+        return;
+    }
 #if SDL_VERSION_ATLEAST(2, 0, 0)
         if (lpDIJoystick != nullptr)
 #else
@@ -214,6 +259,33 @@ void DirectJoystickClass::Exit(int joy) {
     // Joystick updaten
     // --------------------------------------------------------------------------------------
 bool DirectJoystickClass::Update() {
+#if defined(USE_VR)
+    if (IsVirtual) {
+        for (int i = 0; i < VRInput::BTN_COUNT; i++)
+            JoystickButtons[i] = VRInput::ButtonDown(i);
+
+        // Sticks: OpenXR gives -1..1 with +y up; the game wants +/-1000 with +y down
+        const float lx = VRInput::LeftStickX();
+        const float ly = VRInput::LeftStickY();
+        JoystickX = static_cast<int>(lx * 1000.0f);
+        JoystickY = static_cast<int>(-ly * 1000.0f);
+        JoystickX2 = static_cast<int>(VRInput::RightStickX() * 1000.0f);
+        JoystickY2 = static_cast<int>(-VRInput::RightStickY() * 1000.0f);
+
+        // The left stick also acts as the 8-way "hat" so the DPAD control mode works too
+        constexpr float HAT_DEADZONE = 0.5f;
+        JoystickPOV = -1;
+        if (lx * lx + ly * ly > HAT_DEADZONE * HAT_DEADZONE) {
+            // 0 = up, clockwise in hundredths of a degree
+            float angle = atan2f(lx, ly) * 180.0f / PI;
+            if (angle < 0.0f)
+                angle += 360.0f;
+            const int sector = static_cast<int>((angle + 22.5f) / 45.0f) % 8;
+            JoystickPOV = sector * 4500;
+        }
+        return true;
+    }
+#endif
     if (lpDIJoystick != nullptr) {
         SDL_JoystickUpdate();
 

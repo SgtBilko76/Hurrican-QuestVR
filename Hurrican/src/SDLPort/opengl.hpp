@@ -1,7 +1,13 @@
 #ifndef _OPENGL_H_
 #define _OPENGL_H_
 
-#include <epoxy/gl.h>
+#if defined(__ANDROID__)
+// Android/Meta Quest: link straight against libGLESv3, no loader library needed
+#  include <GLES3/gl32.h>
+#  include <GLES2/gl2ext.h>
+#else
+#  include <epoxy/gl.h>
+#endif
 
 // Do some sanity checks
 #if !defined(USE_GL1) && !defined(USE_GL2) && !defined(USE_GL3)

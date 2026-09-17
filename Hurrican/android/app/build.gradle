@@ -1,0 +1,132 @@
+import java.security.MessageDigest
+
+plugins {
+    id 'com.android.application'
+}
+
+// QUEST = OpenXR stereoscopic build (default); ANDROID = flat SDL window (debug aid)
+def hurricanPlatform = project.findProperty('hurricanPlatform') ?: 'QUEST'
+def gameRoot = file('../..')              // E:/Hurrican/Hurrican
+def sdlRoot = new File(gameRoot, '3rdparty/SDL')
+def generatedAssets = layout.buildDirectory.dir('generated/gameassets')
+
+android {
+    namespace 'com.hurricangame.quest'
+    compileSdk 34
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'com.hurricangame.quest'
+        minSdk 29
+        targetSdk 32
+        versionCode 1
+        versionName '1.0.0'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DPLATFORM=' + hurricanPlatform,
+                          '-DANDROID_STL=c++_shared',
+                          '-DANDROID_PLATFORM=android-29',
+                          '-DUSE_PRECOMPILED_HEADERS=ON'
+                cppFlags ''
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    buildFeatures {
+        prefab true
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+            jniDebuggable true
+        }
+        release {
+            minifyEnabled false
+            // Sideloading convenience: sign release builds with the debug key unless a
+            // real keystore is configured (see README "Building for Meta Quest").
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    sourceSets {
+        main {
+            // SDL's stock Java glue (SDLActivity & friends) straight from the submodule
+            java.srcDirs += [new File(sdlRoot, 'android-project/app/src/main/java').path]
+            assets.srcDirs += [generatedAssets.get().asFile.path]
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    // OpenXR loader + headers, consumed by CMake via prefab (find_package(OpenXR CONFIG))
+    implementation 'org.khronos.openxr:openxr_loader_for_android:1.1.62'
+}
+
+// ---------------------------------------------------------------------------------
+// Game data: mirror ../../data and ../../lang into the APK assets, plus a manifest
+// (asset_list.txt) and a content stamp (asset_version.txt). The native side extracts
+// the files to internal storage on first run (or whenever the stamp changes), because
+// the engine reads everything through std::ifstream / IMG_Load / Mix_LoadMUS paths.
+// ---------------------------------------------------------------------------------
+tasks.register('syncGameAssets', Sync) {
+    description = 'Mirrors the Hurrican data/ and lang/ folders into the APK assets'
+    into generatedAssets
+    from(new File(gameRoot, 'data')) {
+        into 'data'
+        exclude 'textures/pvr/**'
+        exclude '**/Thumbs.db'
+    }
+    from(new File(gameRoot, 'lang')) {
+        into 'lang'
+        exclude 'languages.zip'
+    }
+    doLast {
+        def root = generatedAssets.get().asFile
+        def rel = []
+        root.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+            def r = root.toPath().relativize(f.toPath()).toString().replace('\\', '/')
+            if (r != 'asset_list.txt' && r != 'asset_version.txt') {
+                rel << [r, f.length(), f.lastModified()]
+            }
+        }
+        rel.sort { a, b -> a[0] <=> b[0] }
+        new File(root, 'asset_list.txt').text = rel.collect { it[0] + '\t' + it[1] }.join('\n') + '\n'
+        def md = MessageDigest.getInstance('SHA-1')
+        rel.each { md.update((it[0] + ':' + it[1] + ':' + it[2] + '\n').getBytes('UTF-8')) }
+        new File(root, 'asset_version.txt').text = md.digest().encodeHex().toString() + '\n'
+        println "syncGameAssets: ${rel.size()} files, stamp " + new File(root, 'asset_version.txt').text.trim()
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn 'syncGameAssets'
+}

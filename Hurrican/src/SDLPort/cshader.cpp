@@ -48,6 +48,11 @@ void CShader::Close() {
 
     Program = GL_INVALID_VALUE;
     Shaders.clear();
+    // Forget everything belonging to the old program so the object can be Load()ed again
+    // (Android re-runs main() in the same process when the activity is recreated)
+    Uniforms.clear();
+    Attributes.clear();
+    Constants.clear();
 }
 
 bool CShader::Load(const std::string &path_vertex, const std::string &path_frag) {
